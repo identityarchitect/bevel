@@ -62,25 +62,18 @@ spec:
           value: /secret
         - name: NETWORK_VERSION
           value: "{{ $.Values.metadata.network.version }}"
-        - name: GIT_PATH
-          value: "{{ $.Values.vault.secretgitprivatekey }}"
-        - name: GIT_PASSWORD  
-          valueFrom:
-            secretKeyRef:
-              name: gitpassword
-              key: password
         command: ["sh", "-c"]
         args:
         - |-
           #!/usr/bin/env sh
           validateVaultResponse () {
-            if echo ${2} | grep "errors"; then
+            if echo ${2} | grep "errors" || [ "${2}" = "" ]; then
               echo "ERROR: unable to retrieve ${1}: ${2}"
               exit 1
             fi
             if  [ "$3" == "LOOKUPSECRETRESPONSE" ]
             then
-              http_code=$(curl -sS -o /dev/null -w "%{http_code}" \
+              http_code=$(curl -fsS -o /dev/null -w "%{http_code}" \
               --header "X-Vault-Token: ${VAULT_CLIENT_TOKEN}" \
               ${VAULT_ADDR}/v1/${vault_secret_key})
               curl_response=$?
@@ -144,21 +137,14 @@ spec:
           echo "${TLSCACERTS}" >> ${OUTPUT_PATH}/tlscacerts/tlsca.crt
 
           # GIT user creds
-          # This task write the git credentials to Vault
-          curl \
-            -H "X-Vault-Token: ${VAULT_CLIENT_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -X POST \
-            -d '{ "data": {"git_password":"'"$GIT_PASSWORD"'"}}' \
-            ${VAULT_ADDR}/v1/${GIT_PATH}
+          vault_secret_key={{ $.Values.vault.secretgitprivatekey }}
           
-          # Check git credentials
-          LOOKUP_SECRET_RESPONSE=$(curl -sS  \
-            --header "X-Vault-Token: ${VAULT_CLIENT_TOKEN}" \
-            ${VAULT_ADDR}/v1/${vault_secret_key} | jq -r 'if .errors then . else . end')
-          validateVaultResponse "secret (${GIT_PATH})" "${LOOKUP_SECRET_RESPONSE}" "LOOKUPSECRETRESPONSE"
-
-          echo "${GIT_PASSWORD}" >> ${MOUNT_PATH}/user_cred
+          LOOKUP_SECRET_RESPONSE=$(curl -sS \
+              --header "X-Vault-Token: ${VAULT_CLIENT_TOKEN}" \
+          ${VAULT_ADDR}/v1/${vault_secret_key} | jq -r 'if .errors then . else . end')
+          validateVaultResponse "secret (${vault_secret_key})" "${LOOKUP_SECRET_RESPONSE}" "LOOKUPSECRETRESPONSE"
+          VALUE_OF_SECRET=$(echo ${LOOKUP_SECRET_RESPONSE} | jq -r ".data.data[\"git_password\"]")         
+          echo "${VALUE_OF_SECRET}" >> ${MOUNT_PATH}/user_cred
 
         volumeMounts:
         {{ if .Values.vault.tls  }}
@@ -183,7 +169,13 @@ spec:
           apk add curl openssh
           ssh-keyscan {{ $.Values.chaincode.repository.hostname }} > /root/.ssh/known_hosts
           git_password=$(cat /opt/gopath/src/github.com/hyperledger/fabric/crypto/user_cred)
-          cd /tmp && git clone https://{{ $.Values.chaincode.repository.git_username }}:$GIT_PASSWORD@{{ $.Values.chaincode.repository.url }} -b {{ $.Values.chaincode.repository.branch }} chaincode
+          cd /tmp && git clone https://{{ $.Values.chaincode.repository.git_username }}:$git_password@{{ $.Values.chaincode.repository.url }} -b {{ $.Values.chaincode.repository.branch }} chaincode > git.log 2>&1
+          ## Check if the repository was cloned correctly
+          if [[ ! $? -eq 0 ]];
+          then
+            cat git.log
+            exit 1
+          fi
           ls
           echo $GOPATH
           if [ ${CC_RUNTIME_LANGUAGE} = "golang" ]
@@ -334,3 +326,4 @@ spec:
         - name: certificates
           mountPath: /opt/gopath/src/github.com/hyperledger/fabric/crypto
           readOnly: true
+

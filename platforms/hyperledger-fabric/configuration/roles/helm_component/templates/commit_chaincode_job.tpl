@@ -1,4 +1,4 @@
-apiVersion: helm.fluxcd.io/v1
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
 kind: HelmRelease
 metadata:
   name: {{ component_name }}
@@ -6,11 +6,16 @@ metadata:
   annotations:
     fluxcd.io/automated: "false"
 spec:
+  interval: 1m
   releaseName: {{ component_name }}
   chart:
-    git: {{ git_url }}
-    ref: {{ git_branch }}
-    path: {{ charts_dir }}/commit_chaincode
+    spec:
+      interval: 1m
+      sourceRef:
+        kind: GitRepository
+        name: flux-{{ network.env.type }}
+        namespace: flux-{{ network.env.type }}
+      chart: {{ charts_dir }}/commit_chaincode
   values:
     metadata:
       namespace: {{ namespace }}
@@ -46,8 +51,15 @@ spec:
       name: {{ item.channel_name | lower }}
     endorsers:
       creator: {{ namespace }}
-      name: {% for name in endorsers_list %}{%- for key, value in name.items() %}{% if key == 'org_name' %} {{ value }} {% endif %}{%- endfor %}{% endfor %}
+      name: {% for name in endorsers_list %}{%- for key, value in name.items() %}{% if key == 'name' %} {{ value }} {% endif %}{%- endfor %}{% endfor %}
 
       corepeeraddress: {% for address in endorsers_list %}{%- for key, value in address.items() %}{% if key == 'peercoreaddress' %} {{ value }} {% endif %}{% endfor -%}{% endfor %}
 
-      certificates: {% for cert in endorsers_list %}{%- for key, value in cert.items() %}{% if key == 'certificate' %} {{ value }} {% endif %}{% endfor -%}{% endfor %}
+      nameslist: 
+{% for name in endorsers_list %}
+{% for key, value in name.items() %}
+{% if key == 'name' %}
+        - {{ key }}: {{ value }}
+{% endif %}
+{% endfor %}
+{% endfor %}

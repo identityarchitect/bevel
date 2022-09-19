@@ -68,13 +68,13 @@ spec:
         - |-
           #!/usr/bin/env sh
           validateVaultResponse () {
-            if echo ${2} | grep "errors"; then
+            if echo ${2} | grep "errors" || [ "${2}" = "" ]; then
               echo "ERROR: unable to retrieve ${1}: ${2}"
               exit 1
             fi
             if  [ "$3" == "LOOKUPSECRETRESPONSE" ]
             then
-              http_code=$(curl -sS -o /dev/null -w "%{http_code}" \
+              http_code=$(curl -fsS -o /dev/null -w "%{http_code}" \
               --header "X-Vault-Token: ${VAULT_CLIENT_TOKEN}" \
               ${VAULT_ADDR}/v1/${vault_secret_key})
               curl_response=$?
@@ -94,7 +94,8 @@ spec:
           VAULT_CLIENT_TOKEN=$(curl -sS --request POST ${VAULT_ADDR}/v1/auth/${KUBERNETES_AUTH_PATH}/login \
             -H "Content-Type: application/json" \
             -d '{"role":"'"${VAULT_APP_ROLE}"'","jwt":"'"${KUBE_SA_TOKEN}"'"}' | \
-            jq -r 'if .errors then . else .auth.client_token end')        
+            jq -r 'if .errors then . else .auth.client_token end')
+     
           validateVaultResponse 'vault login token' "${VAULT_CLIENT_TOKEN}"
 
           vault_secret_key="${VAULT_SECRET_PREFIX}/tls"
@@ -164,6 +165,7 @@ spec:
       containers:
       - name: couchdb
         image: {{ $.Values.metadata.images.couchdb }}
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c"]
         args:
         - |-
@@ -203,6 +205,7 @@ spec:
           mountPath: /etc/hyperledger/fabric/crypto
       - name: {{ $.Values.peer.name }}
         image: {{ $.Values.metadata.images.peer }}
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c"]
         args:
         - |-
@@ -237,7 +240,8 @@ spec:
             memory: {{ .Values.config.pod.resources.limits.memory }}
             cpu: {{ .Values.config.pod.resources.limits.cpu }}
       - name: grpc-web
-        image: "ghcr.io/hyperledger-labs/grpc-web:latest"        
+        image: "ghcr.io/hyperledger-labs/grpc-web:latest"
+        imagePullPolicy: IfNotPresent        
         ports:
         - name: grpc-web
           containerPort: 7443        
